@@ -882,6 +882,20 @@ impl RendezvousServer {
     }
 
     #[inline]
+    async fn check_token_with_api(api_url: &str, token: &str) -> bool {
+        let url = format!("{}/api/check_token?token={}", api_url, token);
+        let client = reqwest::Client::new();
+        if let Ok(resp) = client.get(&url).send().await {
+            if resp.status().is_success() {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    return json.get("valid").and_then(|v| v.as_bool()).unwrap_or(false);
+                }
+            }
+        }
+        false
+    }
+
+    #[inline]
     async fn handle_punch_hole_request(
         &mut self,
         addr: SocketAddr,
@@ -909,8 +923,8 @@ impl RendezvousServer {
                 return Ok((msg_out, None));
             } else if !jwt::SECRET.is_empty() {
                 let token = ph.token;
-                let token = jwt::verify_token(token.as_str());
-                if token.is_err() {
+                let token_ret = jwt::verify_token(token.as_str());
+                if token_ret.is_err() || !Self::check_token_with_api("http://127.0.0.1:21114", token.as_str()).await {
                     let mut msg_out = RendezvousMessage::new();
                     msg_out.set_punch_hole_response(PunchHoleResponse {
                         //提示重新登录
